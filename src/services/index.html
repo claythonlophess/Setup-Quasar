@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pose Estimation</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: #f0f0f0;
+    }
+    canvas, video {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    img {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 50px;
+      height: 50px;
+    }
+    .status {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 255, 255, 0.8);
+      padding: 10px;
+      border-radius: 5px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <canvas id="output"></canvas>
+  <img id="image" src="https://via.placeholder.com/50" alt="Moving Image">
+  <div class="status" id="status">Status: Idle</div>
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('output');
+    const ctx = canvas.getContext('2d');
+    const image = document.getElementById('image');
+    const statusEl = document.getElementById('status');
+    let detector;
+    let previousPositions = [];
+    const runningThreshold = 15; // Adjust this value based on experimentation
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true
+      });
+      video.srcObject = stream;
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          resolve(video);
+        };
+      });
+    }
+
+    async function loadModel() {
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+    }
+
+    async function detectPose() {
+      const poses = await detector.estimatePoses(video);
+      if (poses.length > 0) {
+        const rightWrist = poses[0].keypoints.find(point => point.name === 'right_wrist');
+        if (rightWrist && rightWrist.score > 0.5) {
+          moveImage(rightWrist.x, rightWrist.y);
+          drawRightWrist(rightWrist.x, rightWrist.y);
+        }
+        detectRunning(poses[0]);
+      }
+      drawCanvas(poses);
+      requestAnimationFrame(detectPose);
+    }
+
+    function moveImage(x, y) {
+      image.style.left = `${x}px`;
+      image.style.top = `${y}px`;
+    }
+
+    function drawRightWrist(x, y) {
+      ctx.beginPath();
+      ctx.arc(x, y, 10, 0, 2 * Math.PI);
+      ctx.fillStyle = 'blue';
+      ctx.fill();
+    }
+
+    function drawCanvas(poses) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (poses.length > 0) {
+        poses.forEach(pose => {
+          pose.keypoints.forEach(point => {
+            if (point.score > 0.5) {
+              ctx.beginPath();
+              ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+              ctx.fillStyle = 'red';
+              ctx.fill();
+            }
+          });
+        });
+      }
+    }
+
+    function detectRunning(pose) {
+      const leftAnkle = pose.keypoints.find(point => point.name === 'left_ankle');
+      const rightAnkle = pose.keypoints.find(point => point.name === 'right_ankle');
+      if (leftAnkle && rightAnkle && leftAnkle.score > 0.5 && rightAnkle.score > 0.5) {
+        previousPositions.push({ left: leftAnkle, right: rightAnkle });
+        if (previousPositions.length > 10) {
+          previousPositions.shift();
+        }
+        if (previousPositions.length >= 2) {
+          const speed = calculateSpeed(previousPositions);
+          if (speed > runningThreshold) {
+            statusEl.textContent = "Status: Running";
+          } else {
+            statusEl.textContent = "Status: Idle";
+          }
+        }
+      }
+    }
+
+    function calculateSpeed(positions) {
+      const latest = positions[positions.length - 1];
+      const previous = positions[positions.length - 2];
+      const leftSpeed = Math.sqrt(Math.pow(latest.left.x - previous.left.x, 2) + Math.pow(latest.left.y - previous.left.y, 2));
+      const rightSpeed = Math.sqrt(Math.pow(latest.right.x - previous.right.x, 2) + Math.pow(latest.right.y - previous.right.y, 2));
+      return (leftSpeed + rightSpeed) / 2;
+    }
+
+    async function main() {
+      await setupCamera();
+      video.play();
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      await loadModel();
+      detectPose();
+    }
+
+    main();
+  </script>
+</body>
+</html>

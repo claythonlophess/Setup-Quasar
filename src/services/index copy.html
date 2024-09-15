@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pose Estimation</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background: #f0f0f0;
+    }
+    canvas, video {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    img {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 50px;
+      height: 50px;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <canvas id="output"></canvas>
+  <img id="image" src="https://via.placeholder.com/50" alt="Moving Image">
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('output');
+    const ctx = canvas.getContext('2d');
+    const image = document.getElementById('image');
+    let detector;
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true
+      });
+      video.srcObject = stream;
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          resolve(video);
+        };
+      });
+    }
+
+    async function loadModel() {
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+    }
+
+    async function detectPose() {
+      const poses = await detector.estimatePoses(video);
+      if (poses.length > 0) {
+        const rightWrist = poses[0].keypoints.find(point => point.name === 'right_wrist');
+        if (rightWrist && rightWrist.score > 0.5) {
+          moveImage(rightWrist.x, rightWrist.y);
+        }
+      }
+      drawCanvas(poses);
+      requestAnimationFrame(detectPose);
+    }
+
+    function moveImage(x, y) {
+      image.style.left = `${x}px`;
+      image.style.top = `${y}px`;
+    }
+
+    function drawCanvas(poses) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (poses.length > 0) {
+        poses.forEach(pose => {
+          pose.keypoints.forEach(point => {
+            if (point.score > 0.5) {
+              ctx.beginPath();
+              ctx.arc(point.x, point.y, 5, 0, 2 * Math.PI);
+              ctx.fillStyle = 'red';
+              ctx.fill();
+            }
+          });
+        });
+      }
+    }
+
+    async function main() {
+      await setupCamera();
+      video.play();
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      await loadModel();
+      detectPose();
+    }
+
+    main();
+  </script>
+</body>
+</html>
